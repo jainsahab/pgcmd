@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 const { Client } = require('pg');
+const readline = require('readline');
+const GREEN = "\x1b[32m%s\x1b[0m";
 
 const argv = require('yargs')
   .option('host',     { type: 'string', alias: 'h', default: process.env.PGHOST || 'localhost' })
@@ -10,6 +12,7 @@ const argv = require('yargs')
   .option('database', { type: 'string', alias: 'd', default: process.env.PGDATABASE })
   .option('timeout',  { type: 'number', alias: 't', default: 60 })
   .option('param',    { type: 'array',  alias: 'm', default: [] })
+  .option('session',  {type: 'boolean', alias: 's', default: false})
   .strict(true)
   .argv;
 
@@ -34,8 +37,8 @@ async function getQuery() {
   return await readInput();
 }
 
-async function main() {
-  const client = new Client({
+function getClient() {
+  return new Client({
     host: argv.host,
     port: argv.port,
     user: argv.user,
@@ -43,6 +46,10 @@ async function main() {
     database: argv.database,
     statement_timeout: argv.timeout * 1000,
   });
+}
+
+async function main() {
+  const client = getClient();
 
   try {
     await client.connect();
@@ -62,4 +69,37 @@ async function main() {
   }
 }
 
-main();
+async function session() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  const client = getClient();
+
+  try {
+    await client.connect();
+    console.log(GREEN, "Connection successful");
+    const params = argv.param;
+
+    rl.on('line', async (input) => {
+      if(input.length){
+        const {rows} = await client.query(input, params);
+        console.log(JSON.stringify(rows, null, 2));
+      }
+    });
+    rl.on('SIGINT', async () => {
+      await client.end();
+      console.log(GREEN, "bye bye");
+      process.exit();
+    });
+  } catch (error) {
+    console.error(error);
+    process.exit();
+  }
+}
+
+if (!argv.session) {
+  main();
+} else  {
+  session();
+}
